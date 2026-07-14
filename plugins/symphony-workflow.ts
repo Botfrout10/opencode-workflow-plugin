@@ -18,7 +18,7 @@ export const SymphonyWorkflow: Plugin = async (ctx) => {
     return await Bun.file(p).exists()
   }
   async function shell(cmd: string): Promise<string> {
-    return await ctx.$(cmd).nothrow().quiet().text()
+    return await ctx.$`${cmd}`.nothrow().quiet().text()
   }
 
   function detectStack(spec: string | null, override?: string): string {
