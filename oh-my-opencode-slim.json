@@ -113,7 +113,7 @@
     },
     "opencode": {
       "orchestrator": {
-        "model": "opencode/Hy3-free",
+        "model": "opencode/hy3-free",
         "skills": [
           "*"
         ],
@@ -122,7 +122,7 @@
         ]
       },
       "oracle": {
-        "model": "opencode/Hy3-free",
+        "model": "opencode/hy3-free",
         "variant": "max",
         "skills": [
           "simplify"
@@ -130,7 +130,7 @@
         "mcps": []
       },
       "council": {
-        "model": "opencode/Hy3-free",
+        "model": "opencode/hy3-free",
         "variant": "high",
         "skills": [],
         "mcps": []
@@ -161,7 +161,7 @@
         "mcps": []
       },
       "fixer": {
-        "model": "opencode/Hy3-free",
+        "model": "opencode/hy3-free",
         "variant": "high",
         "skills": [],
         "mcps": [
