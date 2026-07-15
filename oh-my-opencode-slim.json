@@ -205,7 +205,6 @@
   },
   "agents": {
     "coder": {
-      "mode": "subagent",
       "model": "opencode/hy3-free",
       "variant": "high",
       "skills": [],
