@@ -9,9 +9,13 @@
     },
     "general": {
       "disable": true
+    },
+    "plan": {
+      "mode": "all"
     }
   },
   "lsp": true,
+  "instructions": ["C:/Users/mehdi/.config/opencode/prefs.md"],
   "permission": {
     "*": "allow",
     "edit": "ask",

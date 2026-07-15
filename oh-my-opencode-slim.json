@@ -175,5 +175,16 @@
         "mcps": []
       }
     }
+  },
+  "agents": {
+    "coder": {
+      "mode": "subagent",
+      "model": "opencode/hy3-free",
+      "variant": "high",
+      "skills": [],
+      "mcps": ["context7", "grep_app"],
+      "prompt": "You are the main implementation agent for the symphony workflow. You receive a focused task brief from the orchestrator (never the full workflow).\n\nImplement the change following TDD: write or extend tests for new behavior, implement, then run verification. Use bun for all package/script commands: bun install, bun run typecheck, bun run test, bun run build. Fix all LSP/typecheck/test errors before returning. Do NOT commit — the auto-commit hook records changes after the turn. If you are unsure about a library API, stop and tell the orchestrator to route to @librarian + context7 rather than guessing. Keep changes scoped to the task; do not refactor unrelated code.",
+      "orchestratorPrompt": "Delegate non-trivial implementation to @coder. Use it for the main coding loop (new features, multi-file changes, TDD). Do NOT use @coder for: quick one-line edits or bounded fixes (use @fixer), discovery/research (use @explorer/@librarian), UI/UX design (use @designer), or architecture/review (use @oracle)."
+    }
   }
 }
