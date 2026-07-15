@@ -265,6 +265,74 @@ describe("smoke", () => {
     return true
   }
 
+  async function commitMessage(dir: string): Promise<string> {
+    // 1) Prefer an agent-authored message written during the turn.
+    const msgPath = join(dir, ".git", "OC_COMMIT_MSG")
+    if (await exists(msgPath)) {
+      const m = (await readText(msgPath) || "").trim()
+      await shell(`rm -f ${JSON.stringify(msgPath)}`).catch(() => {})
+      if (m) return m
+    }
+    // 2) Fallback: build a short conventional message from the diff.
+    const status = (await shell(`git -C ${dir} status --porcelain -uall`)).trim()
+    if (!status) return "chore: update working tree"
+    const files: string[] = []
+    let adds = 0, mods = 0, dels = 0, renames = 0
+    for (const line of status.split(/\r?\n/)) {
+      if (!line.trim()) continue
+      const code = line.slice(0, 2)
+      let p = line.slice(3).trim()
+      const rm = p.match(/ -> (.+)$/)
+      if (rm) { p = rm[1]; renames++ }
+      files.push(p)
+      if (code.includes("A")) adds++
+      else if (code.includes("D")) dels++
+      else if (code.includes("?")) adds++
+      else mods++
+    }
+    const low = files.map((f) => f.toLowerCase())
+    const all = (pred: (f: string) => boolean) => low.length > 0 && low.every(pred)
+    const isDocs = all((f) => /\.(md|mdx|txt)$/.test(f) || /(^|\/)docs\//.test(f))
+    const isTest = all((f) => /(^|\/)(test|tests|spec|__tests__)\//.test(f) || /\.(test|spec)\.[^.]+$/.test(f))
+    const isCfg = all((f) => /\.(json|jsonc|toml|yaml|yml|ini|env|lock|config\.[^/]+)$/.test(f) || /(^|\/)(\.github|\.vscode|configs?)\//.test(f) || /package\.json$/.test(f))
+    const isStyle = all((f) => /\.(css|scss|sass|less|styled)$/.test(f))
+    let type = "chore"
+    if (isDocs) type = "docs"
+    else if (isTest) type = "test"
+    else if (isCfg) type = "chore"
+    else if (isStyle) type = "style"
+    else {
+      if (adds > 0 && dels === 0 && mods === 0) type = "feat"
+      else {
+        const num = (await shell(`git -C ${dir} diff HEAD --numstat`)).trim()
+        let a = 0, d = 0
+        for (const l of num.split("\n")) {
+          const parts = l.split("\t")
+          if (parts.length >= 2) { a += parseInt(parts[0]) || 0; d += parseInt(parts[1]) || 0 }
+        }
+        if (renames > 0 && adds === 0 && mods === 0 && dels === 0) type = "refactor"
+        else if (a > 0 && d === 0) type = "feat"
+        else if (d > a * 1.5) type = "fix"
+        else type = "fix"
+      }
+    }
+    let verb = "update"
+    if (adds > 0 && mods === 0 && dels === 0 && renames === 0) verb = "add"
+    else if (dels > 0 && adds === 0 && mods === 0 && renames === 0) verb = "remove"
+    else if (renames > 0 && adds === 0 && mods === 0 && dels === 0) verb = "rename"
+    const humanize = (p: string) => p.split("/").pop()!.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ")
+    const names = files.map(humanize)
+    const scope = files[0].includes("/") ? files[0].split("/")[0] : ""
+    let desc: string
+    if (names.length === 1) desc = `${verb} ${names[0]}`
+    else if (names.length <= 3) desc = `${verb} ${names.join(", ").replace(/, ([^,]*)$/, " and $1")}`
+    else desc = `${verb} ${names.length} files (${names[0]}, ${names[1]}, …)`
+    const head = scope ? `${scope}: ` : ""
+    let msg = `${type}: ${head}${desc}`
+    if (msg.length > 72) msg = msg.slice(0, 71).trimEnd() + "…"
+    return msg
+  }
+
   return {
     event: async ({ event }) => {
       if (event.type !== "session.idle") return
@@ -276,9 +344,9 @@ describe("smoke", () => {
       if (!status) return
       // Gate: only commit a green tree. Run project verification if scripts exist.
       if (!(await verifyGreen(dir))) return
-      const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
+      const msg = await commitMessage(dir)
       await ctx.$`git -C ${dir} add -A`.nothrow()
-      await ctx.$`git -C ${dir} commit -m ${`chore: opencode changes (${ts})`}`.nothrow()
+      await ctx.$`git -C ${dir} commit -m ${msg}`.nothrow()
     },
     tool: {
       symphony_init: tool({
