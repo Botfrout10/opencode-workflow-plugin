@@ -1,5 +1,6 @@
 import { type Plugin, tool } from "@opencode-ai/plugin"
 import { join } from "node:path"
+import { readdir } from "node:fs"
 
 export const SymphonyWorkflow: Plugin = async (ctx) => {
   const root = ctx.directory
@@ -21,19 +22,74 @@ export const SymphonyWorkflow: Plugin = async (ctx) => {
     return await ctx.$`${cmd}`.nothrow().quiet().text()
   }
 
-  function detectStack(spec: string | null, override?: string): string {
-    if (override) return override.toLowerCase()
+  type Stack = "next" | "vite-react" | "react" | "svelte" | "node" | "rust" | "python" | "dotnet" | "go" | "java" | "ruby" | "generic"
+
+  function isNodeFamily(stack: Stack): boolean {
+    return stack === "next" || stack === "vite-react" || stack === "react" || stack === "svelte" || stack === "node"
+  }
+
+  function detectStack(spec: string | null, override?: string): Stack {
+    if (override) {
+      const o = override.toLowerCase()
+      if (["next", "vite-react", "react", "svelte", "node", "rust", "python", "dotnet", "go", "java", "ruby"].includes(o)) return o as Stack
+      if (o.includes("next")) return "next"
+      if (o.includes("svelte")) return "svelte"
+      if (o.includes("vite") && o.includes("react")) return "vite-react"
+      if (o.includes("react")) return "react"
+      if (o.includes("rust") || o.includes("cargo")) return "rust"
+      if (o.includes("python")) return "python"
+      if (o.includes("dotnet") || o.includes("c#") || o.includes(".net")) return "dotnet"
+      if (o.includes("golang")) return "go"
+      if (o.includes("java")) return "java"
+      if (o.includes("ruby") || o.includes("rails")) return "ruby"
+      if (o.includes("node") || o.includes("fastify") || o.includes("express")) return "node"
+      return "generic"
+    }
     if (!spec) return "generic"
     const s = spec.toLowerCase()
     if (s.includes("next")) return "next"
     if (s.includes("svelte")) return "svelte"
     if (s.includes("vite") && s.includes("react")) return "vite-react"
     if (s.includes("react")) return "react"
+    if (s.includes("rust") || s.includes("cargo")) return "rust"
+    if (s.includes("python")) return "python"
+    if (s.includes("dotnet") || s.includes("c#") || s.includes(".net")) return "dotnet"
+    if (s.includes("golang") || /\bgo\b/.test(s)) return "go"
+    if (s.includes("java") && !s.includes("javascript") && !s.includes("typescript")) return "java"
+    if (s.includes("ruby") || s.includes("rails")) return "ruby"
     if (s.includes("fastify") || s.includes("express") || s.includes("node")) return "node"
     return "generic"
   }
 
-  async function scaffold(stack: string) {
+  async function hasAny(dir: string, names: string[]): Promise<boolean> {
+    for (const n of names) if (await exists(join(dir, n))) return true
+    return false
+  }
+  async function hasExt(dir: string, ext: string): Promise<boolean> {
+    try {
+      const entries = await readdir(dir)
+      return entries.some((e) => e.toLowerCase().endsWith(ext))
+    } catch {
+      return false
+    }
+  }
+
+  // Manifest-first stack detection (reliable); falls back to PROJECT.md text.
+  async function detectProjectStack(dir: string): Promise<Stack> {
+    if (await exists(join(dir, "Cargo.toml"))) return "rust"
+    if (await exists(join(dir, "go.mod"))) return "go"
+    if (await hasAny(dir, ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"])) return "python"
+    if (await hasAny(dir, ["pom.xml", "build.gradle", "build.gradle.kts"])) return "java"
+    if (await hasExt(dir, ".csproj") || await hasExt(dir, ".sln") || await hasExt(dir, ".fsproj")) return "dotnet"
+    if (await exists(join(dir, "Gemfile"))) return "ruby"
+    if (await exists(join(dir, "package.json"))) {
+      const fw = detectStack(await readText(join(dir, "PROJECT.md")))
+      return isNodeFamily(fw) ? fw : "node"
+    }
+    return detectStack(await readText(join(dir, "PROJECT.md")))
+  }
+
+  async function scaffold(stack: Stack) {
     const projectMd = join(root, "PROJECT.md")
     const hadProjectMd = await exists(projectMd)
     // Official scaffolders refuse non-empty dirs; stash PROJECT.md so they can run.
@@ -73,6 +129,32 @@ export const SymphonyWorkflow: Plugin = async (ctx) => {
         include: ["src"],
       }, null, 2))
     }
+  }
+
+  // Scaffold a minimal, language-appropriate project for non-Node stacks.
+  // Never creates a package.json / runs bun — the agent uses the real toolchain.
+  async function scaffoldNonNode(stack: Stack) {
+    if (stack === "rust") {
+      if (!(await exists(join(root, "Cargo.toml")))) {
+        await writeText(join(root, "Cargo.toml"),
+          `[package]\nname = "project"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n`)
+        await ctx.$`mkdir -p src`.quiet().nothrow()
+        await writeText(join(root, "src", "main.rs"), "fn main() {\n    println!(\"hello\");\n}\n")
+      }
+    } else if (stack === "python") {
+      if (!(await exists(join(root, "pyproject.toml")))) {
+        await writeText(join(root, "pyproject.toml"),
+          `[project]\nname = "project"\nversion = "0.1.0"\nrequires-python = ">=3.10"\n\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n`)
+        await ctx.$`mkdir -p tests`.quiet().nothrow()
+        await writeText(join(root, "tests", "test_smoke.py"), "def test_smoke():\n    assert 1 + 1 == 2\n")
+      }
+    } else if (stack === "go") {
+      if (!(await exists(join(root, "go.mod")))) {
+        await ctx.$`go mod init project`.nothrow().quiet()
+        await writeText(join(root, "main.go"), "package main\n\nfunc main() {}\n")
+      }
+    }
+    // dotnet / java / ruby: no manifest forced; the agent sets up the toolchain.
   }
 
   async function ensureGit(): Promise<string> {
@@ -129,20 +211,52 @@ describe("smoke", () => {
     }
   }
 
-  async function verifyGreen(dir: string): Promise<boolean> {
-    const pkgPath = join(dir, "package.json")
-    if (!(await exists(pkgPath))) return true
-    let pkg: any = {}
-    try {
-      pkg = JSON.parse((await readText(pkgPath)) || "{}")
-    } catch {
-      return true
+  // Returns the shell commands that prove a project is "green" for its stack.
+  // Empty array => nothing to verify (pass). Commands are only included when the
+  // stack's manifest/toolchain is actually present, so fresh or unknown projects
+  // are not blocked, and non-Node stacks use their own toolchain (cargo, pytest, …).
+  async function verifyCommands(stack: Stack, dir: string): Promise<string[]> {
+    switch (stack) {
+      case "rust":
+        return (await exists(join(dir, "Cargo.toml"))) ? ["cargo check", "cargo test"] : []
+      case "go":
+        return (await exists(join(dir, "go.mod"))) ? ["go vet ./...", "go test ./..."] : []
+      case "python":
+        return (await hasAny(dir, ["pyproject.toml", "requirements.txt", "setup.py"])) ? ["pytest"] : []
+      case "dotnet":
+        return (await hasExt(dir, ".csproj") || await hasExt(dir, ".sln")) ? ["dotnet test"] : []
+      case "java":
+        if (await exists(join(dir, "pom.xml"))) return ["mvn test"]
+        if (await hasAny(dir, ["build.gradle", "build.gradle.kts"])) return ["gradle test"]
+        return []
+      case "ruby":
+        return (await exists(join(dir, "Gemfile"))) ? ["bundle exec rspec"] : []
+      case "node":
+      case "next":
+      case "vite-react":
+      case "react":
+      case "svelte": {
+        const pkgPath = join(dir, "package.json")
+        if (!(await exists(pkgPath))) return []
+        let pkg: any = {}
+        try { pkg = JSON.parse((await readText(pkgPath)) || "{}") } catch { return [] }
+        const scripts = pkg.scripts || {}
+        const cmds: string[] = []
+        if (scripts.typecheck) cmds.push("bun run typecheck")
+        if (scripts.test) cmds.push("bun run test")
+        return cmds
+      }
+      default:
+        return []
     }
-    const scripts = pkg.scripts || {}
-    for (const script of ["typecheck", "test"]) {
-      if (!scripts[script]) continue
+  }
+
+  async function verifyGreen(dir: string): Promise<boolean> {
+    const stack = await detectProjectStack(dir)
+    const cmds = await verifyCommands(stack, dir)
+    for (const cmd of cmds) {
       try {
-        const res = await ctx.$`bun run ${script}`.nothrow().quiet()
+        const res = await ctx.$`${cmd}`.nothrow().quiet()
         if (res.exitCode !== 0) return false
       } catch {
         return false
@@ -177,21 +291,31 @@ describe("smoke", () => {
             .describe("Override detected stack: next | vite-react | react | svelte | node | generic"),
         },
         async execute(args) {
-          const spec = await readText(join(root, "PROJECT.md"))
-          const stack = detectStack(spec, args.stack)
+          const stack = await detectProjectStack(root)
           const steps: string[] = []
-          await scaffold(stack)
-          steps.push(`scaffold: ${stack}`)
+          if (isNodeFamily(stack)) {
+            await scaffold(stack)
+            steps.push(`scaffold: ${stack}`)
+          } else if (stack === "generic") {
+            steps.push("scaffold: skipped (no recognized stack — add your own toolchain)")
+          } else {
+            await scaffoldNonNode(stack)
+            steps.push(`scaffold: ${stack}`)
+          }
           steps.push(`git: ${await ensureGit()}`)
-          await ensureVitest()
-          steps.push("vitest: configured")
-          await ctx.$`bun install`.nothrow().quiet()
-          steps.push("deps: npm install")
+          if (isNodeFamily(stack)) {
+            await ensureVitest()
+            steps.push("vitest: configured")
+            await ctx.$`bun install`.nothrow().quiet()
+            steps.push("deps: bun install")
+          } else {
+            steps.push("deps: skipped (non-node stack — use your language's package manager)")
+          }
           return [
             "## symphony_init complete",
             ...steps.map((s) => `- ${s}`),
             "",
-            "Next: generate AGENTS.md and DESIGN.md with real content (the agent does this), then start coding. Commits are auto-created after each turn.",
+            "Next: generate AGENTS.md and DESIGN.md with real content (the agent does this), then start coding. Commits are auto-created after each turn (gated on a green tree for the detected stack).",
           ].join("\n")
         },
       }),
@@ -201,7 +325,7 @@ describe("smoke", () => {
       config.command["init-project"] = {
         description: "Scaffold project (stack-aware) + AGENTS.md/DESIGN.md + git + tests",
         template:
-          "Initialize this project with the symphony_init tool: read PROJECT.md for the stack, scaffold it (run the official scaffolder for known stacks or generate a structure), git init, and set up the test runner. Use bun for all package operations (bun install, bun run). Then, based on PROJECT.md and the scaffolded project, WRITE complete, project-specific content into AGENTS.md (stack, commands using bun, conventions, delegation notes) and DESIGN.md (overview, architecture, data model, UI/UX direction, key decisions). Do NOT leave placeholder comments — generate real content. Report what was created.",
+          "Initialize this project with the symphony_init tool: detect the stack from existing manifests (Cargo.toml, go.mod, pyproject.toml, package.json, …) or PROJECT.md, then scaffold with the right toolchain (cargo / go / pytest / dotnet for non-Node stacks — do NOT force Node or run bun there). git init and set up the test runner for the detected stack. Then, based on PROJECT.md and the scaffolded project, WRITE complete, project-specific content into AGENTS.md (stack, commands for that stack's package manager and test runner, conventions, delegation notes) and DESIGN.md (overview, architecture, data model, UI/UX direction, key decisions). Do NOT leave placeholder comments — generate real content. Report what was created.",
         subtask: false,
       }
     },
