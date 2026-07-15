@@ -49,7 +49,16 @@
         "model": "openai/gpt-5.4-mini",
         "variant": "low",
         "skills": [],
-        "mcps": []
+        "mcps": [],
+        "permission": {
+          "bash": {
+            "git commit*": "deny",
+            "git push*": "deny",
+            "git reset --hard*": "deny",
+            "git clean*": "deny",
+            "*": "allow"
+          }
+        }
       }
     },
     "opencode-go": {
@@ -103,7 +112,16 @@
         "model": "opencode-go/deepseek-v4-flash",
         "variant": "high",
         "skills": [],
-        "mcps": []
+        "mcps": [],
+        "permission": {
+          "bash": {
+            "git commit*": "deny",
+            "git push*": "deny",
+            "git reset --hard*": "deny",
+            "git clean*": "deny",
+            "*": "allow"
+          }
+        }
       },
       "observer": {
         "model": "opencode-go/kimi-k2.6",
@@ -167,7 +185,16 @@
         "mcps": [
           "context7",
           "grep_app"
-        ]
+        ],
+        "permission": {
+          "bash": {
+            "git commit*": "deny",
+            "git push*": "deny",
+            "git reset --hard*": "deny",
+            "git clean*": "deny",
+            "*": "allow"
+          }
+        }
       },
       "observer": {
         "model": "opencode/mimo-v2.5-free",
@@ -183,7 +210,16 @@
       "variant": "high",
       "skills": [],
       "mcps": ["context7", "grep_app"],
-      "prompt": "You are the main implementation agent for the symphony workflow. You receive a focused task brief from the orchestrator (never the full workflow).\n\nImplement the change following TDD: write or extend tests for new behavior, implement, then run verification. Use bun for all package/script commands: bun install, bun run typecheck, bun run test, bun run build. Fix all LSP/typecheck/test errors before returning. Do NOT commit — the auto-commit hook records changes after the turn. If you are unsure about a library API, stop and tell the orchestrator to route to @librarian + context7 rather than guessing. Keep changes scoped to the task; do not refactor unrelated code.",
+      "permission": {
+        "bash": {
+          "git commit*": "deny",
+          "git push*": "deny",
+          "git reset --hard*": "deny",
+          "git clean*": "deny",
+          "*": "allow"
+        }
+      },
+      "prompt": "You are the main implementation agent for the symphony workflow. You receive a focused task brief from the orchestrator (never the full workflow).\n\nImplement the change following TDD: write or extend tests for new behavior, implement, then run verification. Use bun for all package/script commands: bun install, bun run typecheck, bun run test, bun run build. Fix all LSP/typecheck/test errors before returning. If you cannot get typecheck/test green after reasonable attempts, STOP and report the failure explicitly to the orchestrator — do not claim success. Never run git commit or git push; the auto-commit hook is the only writer and records changes after a green turn. If you are unsure about a library API, stop and tell the orchestrator to route to @librarian + context7 rather than guessing. Keep changes scoped to the task; do not refactor unrelated code.",
       "orchestratorPrompt": "Delegate non-trivial implementation to @coder. Use it for the main coding loop (new features, multi-file changes, TDD). Do NOT use @coder for: quick one-line edits or bounded fixes (use @fixer), discovery/research (use @explorer/@librarian), UI/UX design (use @designer), or architecture/review (use @oracle)."
     }
   }

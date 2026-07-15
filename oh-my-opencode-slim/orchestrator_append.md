@@ -21,10 +21,12 @@ Delegate implementation to subagents; do not code it yourself unless it is a tri
 - UI/UX, layout, visual polish → **@designer**.
 - External docs, library APIs, research → **@librarian** (with context7).
 - Architecture, risky refactors, debugging, review → **@oracle**.
-- After implementation, let the auto-commit hook record the diff after the turn.
-- Run **build** (via the coding subagent) to verify integrity before reporting done.
+- Use **bun** for all package/script commands: `bun install`, `bun run typecheck`, `bun run test`, `bun run build`.
 
-Use **bun** for all package/script commands: `bun install`, `bun run typecheck`, `bun run test`, `bun run build`.
+**Before the turn ends (verify-before-commit):**
+- Ensure the working tree is green: typecheck + tests pass. The auto-commit hook only records a green tree; a red tree is left uncommitted for the next turn to fix.
+- For non-trivial changes, spawn **@oracle** to review the diff before the turn ends. Act on its findings (fix or adjust) so the committed state is clean.
+- **Escalation:** if the coding subagent cannot get typecheck/test green after reasonable attempts, do NOT hand back broken code. Spawn **@oracle** to debug, or pause and ask the user. Never end the turn claiming success on a red tree.
 
 ### 5. Summary
 - End with a concise summary: what changed, why, and the verification result (tests/typecheck/build).

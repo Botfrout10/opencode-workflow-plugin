@@ -129,6 +129,28 @@ describe("smoke", () => {
     }
   }
 
+  async function verifyGreen(dir: string): Promise<boolean> {
+    const pkgPath = join(dir, "package.json")
+    if (!(await exists(pkgPath))) return true
+    let pkg: any = {}
+    try {
+      pkg = JSON.parse((await readText(pkgPath)) || "{}")
+    } catch {
+      return true
+    }
+    const scripts = pkg.scripts || {}
+    for (const script of ["typecheck", "test"]) {
+      if (!scripts[script]) continue
+      try {
+        const res = await ctx.$`bun run ${script}`.nothrow().quiet()
+        if (res.exitCode !== 0) return false
+      } catch {
+        return false
+      }
+    }
+    return true
+  }
+
   return {
     event: async ({ event }) => {
       if (event.type !== "session.idle") return
@@ -138,6 +160,8 @@ describe("smoke", () => {
       if (top === "C:/Users/mehdi") return
       const status = (await ctx.$`git -C ${dir} status --porcelain`.nothrow().quiet().text()).trim()
       if (!status) return
+      // Gate: only commit a green tree. Run project verification if scripts exist.
+      if (!(await verifyGreen(dir))) return
       const ts = new Date().toISOString().slice(0, 16).replace("T", " ")
       await ctx.$`git -C ${dir} add -A`.nothrow()
       await ctx.$`git -C ${dir} commit -m ${`chore: opencode changes (${ts})`}`.nothrow()
